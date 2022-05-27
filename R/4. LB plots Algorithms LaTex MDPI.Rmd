@@ -1,0 +1,741 @@
+---
+title: "plots"
+author: "Giovany Babativa"
+date: "18/8/2020"
+output: 
+  pdf_document:
+    latex_engine: pdflatex
+    keep_tex: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.width = 12, fig.height = 8)
+library(tidyverse)
+library(ggpubr)
+library(latex2exp)
+```
+
+## Resultados paper Algorithms 
+
+Escenarios de simulación.
+
+### Caso Balanceado
+```{r, echo = FALSE}
+load(here::here("data/balanceado.rda"))
+nr <- nrow(balanceado %>% filter(n==100 & p==50 & k==1))
+balanceado <- balanceado %>% filter(n != 1000)
+```
+
+#### Resultados de la validación cruzada
+
+```{r}
+resumen <- balanceado %>% 
+           group_by(n, p, k, desb.teorico) %>% 
+           summarise(across(c(desb.real, starts_with("cvD")),
+                     list(mean = ~mean(., na.rm = T), sd = ~sd(., na.rm = T)), 
+                     .names = "{fn}_of_{col}")) %>% ungroup() 
+
+resumenL <- resumen %>% 
+            pivot_longer(cols = -c("n", "p", "k","desb.teorico", "mean_of_desb.real", "sd_of_desb.real"), 
+                         names_to = c("statistic", "metric"),
+                         names_pattern = "(.*)_of_(.*)", 
+                         values_to = "Error") %>% 
+            separate(metric, c("cv", "Algorithm"), sep = "\\.") %>% 
+            select(-cv) %>% 
+            pivot_wider(names_from = statistic, values_from=Error) %>% 
+            mutate(se = sd/sqrt(nr), me = qt(0.975, nr - 1) * se) %>% 
+            mutate(p = factor(p, levels = c(50, 100), labels = c("p = 50", "p = 100")),
+                   n = factor(n, levels = c(100, 300, 500, 1000), labels = c("n = 100", "n = 300", "n = 500", "n = 1000"))) %>% 
+            mutate(Algorithm = ifelse(Algorithm == "BS", "HS", Algorithm))
+
+
+cv50 <- resumenL%>%
+        filter(Algorithm != "BFGS") %>% 
+        ggplot(aes(x = k, y = mean, group = Algorithm, shape=Algorithm)) +
+        geom_line(aes(linetype=Algorithm, color=Algorithm)) +
+        geom_point(aes(color=Algorithm), size = 2.0)+
+        geom_errorbar(aes(ymin=mean-me, ymax=mean+me, color=Algorithm), width=.1)+
+        scale_y_continuous(breaks = seq(0,100,5)) +
+        labs(y = "cv error(%)", x = "dimensions (k)") + theme_bw() +
+        theme(strip.text.x = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.text.y = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.background = element_rect(
+          color="black", fill="#A8A8A8", size=1.5, linetype="solid"
+        ),
+        legend.position = "top",
+        axis.text = element_text(size = 16),
+        axis.title = element_text(size = 20),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+        facet_grid(n ~ p) 
+```
+
+```{r cv50, fig.height=8, fig.width=6}
+cv50
+```
+
+#### Resultados error de clasificación
+
+```{r}
+resumen <- balanceado %>% 
+  group_by(n, p, k, desb.teorico) %>% 
+  rename(FR = CG_Fletcher, PR = CG_Polak,    
+         HS = CG_Beale, DY = CG_DY) %>% 
+  summarise(across(c("BFGS", "FR", "PR",    
+                     "HS", "DY", "MM"),
+                   list(mean = ~mean(., na.rm = T), sd = ~sd(., na.rm = T)), 
+                   .names = "{fn}_of_{col}")) %>% ungroup() 
+
+resumenL <- resumen %>% 
+  pivot_longer(cols = -c("n", "p", "k","desb.teorico"), 
+               names_to = c("statistic", "Algorithm"),
+               names_pattern = "(.*)_of_(.*)", 
+               values_to = "Error") %>% 
+  pivot_wider(names_from = statistic, values_from=Error) %>% 
+  mutate(se = sd/sqrt(nr), me = qt(0.975, nr - 1) * se) %>% 
+  mutate(p = factor(p, levels = c(50, 100), labels = c("p = 50", "p = 100")),
+         n = factor(n, levels = c(100, 300, 500, 1000), labels = c("n = 100", "n = 300", "n = 500", "n = 1000")))
+
+
+r50 <- resumenL%>%
+  filter(Algorithm != "BFGS") %>% 
+  ggplot(aes(x = k, y = mean, group = Algorithm, shape=Algorithm)) +
+  geom_line(aes(linetype=Algorithm, color=Algorithm)) +
+  geom_point(aes(color=Algorithm), size = 2.0)+
+  geom_errorbar(aes(ymin=mean-me, ymax=mean+me, color=Algorithm), width=.1)+
+  scale_y_continuous(breaks = seq(0,100,5)) +
+  labs(y = "BACC(%)", x = "dimensions (k)") + theme_bw() +
+   theme(strip.text.x = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.text.y = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.background = element_rect(
+          color="black", fill="#A8A8A8", size=1.5, linetype="solid"
+        ),
+        legend.position = "top",
+        axis.text = element_text(size = 16),
+        axis.title = element_text(size = 20),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  facet_grid(n ~ p)
+```
+
+```{r err50, fig.height=8, fig.width=6}
+r50
+```
+
+#### RMSE
+
+```{r}
+resumen <- balanceado %>% 
+  group_by(n, p, k, desb.teorico) %>% 
+  summarise(across(starts_with("RMSE"),
+                   list(mean = ~mean(., na.rm = T), sd = ~sd(., na.rm = T)), 
+                   .names = "{fn}_of_{col}")) %>% ungroup() 
+
+resumenL <- resumen %>% 
+  pivot_longer(cols = -c("n", "p", "k","desb.teorico"), 
+               names_to = c("statistic", "metric"),
+               names_pattern = "(.*)_of_(.*)", 
+               values_to = "Error") %>%
+  separate(metric, c("RMSE", "Algorithm"), sep = "\\_") %>% 
+  select(-RMSE) %>% 
+  pivot_wider(names_from = statistic, values_from=Error) %>% 
+  mutate(se = sd/sqrt(nr), me = qt(0.975, nr - 1) * se) %>% 
+  mutate(p = factor(p, levels = c(50, 100), labels = c("p = 50", "p = 100")),
+         n = factor(n, levels = c(100, 300, 500, 1000), labels = c("n = 100", "n = 300", "n = 500", "n = 1000"))) %>% 
+  mutate(Algorithm = ifelse(Algorithm == "BS", "HS", Algorithm))
+
+
+RMSE50 <- resumenL%>%
+  filter(Algorithm != "BFGS") %>% 
+  ggplot(aes(x = k, y = mean, group = Algorithm, shape=Algorithm)) +
+  geom_line(aes(linetype=Algorithm, color=Algorithm)) +
+  geom_point(aes(color=Algorithm), size = 2.0)+
+  geom_errorbar(aes(ymin=mean-me, ymax=mean+me, color=Algorithm), width=.1)+
+  scale_y_continuous(breaks = seq(0,20, 1)) +
+  labs(y = "RMSE", x = "dimensions (k)") + theme_bw() +
+   theme(strip.text.x = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.text.y = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.background = element_rect(
+          color="black", fill="#A8A8A8", size=1.5, linetype="solid"
+        ),
+        legend.position = "top",
+        axis.text = element_text(size = 16),
+        axis.title = element_text(size = 20),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  facet_grid(n ~ p)
+```
+
+```{r RMSE50, fig.height=8, fig.width=6}
+RMSE50
+```
+
+
+### Caso desbalanceado $D=0.3$
+
+```{r, echo = FALSE}
+load(here::here("data/imbalanced30.rda"))
+nr <- nrow(imbalanced30 %>% filter(n==100 & p==50 & k==1))
+
+imbalanced30 <- imbalanced30 %>% filter( n != 1000)
+```
+
+#### Resultados de la validación cruzada $D=0.3$
+
+```{r}
+resumen <- imbalanced30 %>% 
+           group_by(n, p, k, desb.teorico) %>% 
+           summarise(across(c(desb.real, starts_with("cvD")),
+                     list(mean = ~mean(., na.rm = T), sd = ~sd(., na.rm = T)), 
+                     .names = "{fn}_of_{col}")) %>% ungroup() 
+
+resumenL <- resumen %>% 
+            pivot_longer(cols = -c("n", "p", "k","desb.teorico", "mean_of_desb.real", "sd_of_desb.real"), 
+                         names_to = c("statistic", "metric"),
+                         names_pattern = "(.*)_of_(.*)", 
+                         values_to = "Error") %>% 
+            separate(metric, c("cv", "Algorithm"), sep = "\\.") %>% 
+            select(-cv) %>% 
+            pivot_wider(names_from = statistic, values_from=Error) %>% 
+            mutate(se = sd/sqrt(nr), me = qt(0.975, nr - 1) * se) %>% 
+            mutate(p = factor(p, levels = c(50, 100), labels = c("p = 50", "p = 100")),
+                   n = factor(n, levels = c(100, 300, 500, 1000), labels = c("n = 100", "n = 300", "n = 500", "n = 1000"))) %>% 
+            mutate(Algorithm = ifelse(Algorithm == "BS", "HS", Algorithm))
+
+
+cv30 <- resumenL%>%
+        filter(Algorithm != "BFGS") %>% 
+        ggplot(aes(x = k, y = mean, group = Algorithm, shape=Algorithm)) +
+        geom_line(aes(linetype=Algorithm, color=Algorithm)) +
+        geom_point(aes(color=Algorithm), size = 2.0)+
+        geom_errorbar(aes(ymin=mean-me, ymax=mean+me, color=Algorithm), width=.1)+
+        scale_y_continuous(breaks = seq(0,100,5)) +
+        labs(y = "cv error(%)", x = "dimensions (k)") + theme_bw() +
+        theme(strip.text.x = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.text.y = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.background = element_rect(
+          color="black", fill="#A8A8A8", size=1.5, linetype="solid"
+        ),
+        legend.position = "top",
+        axis.text = element_text(size = 16),
+        axis.title = element_text(size = 20),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+        facet_grid(n ~ p) 
+
+```
+
+```{r cv30, fig.height=8, fig.width=6}
+cv30
+```
+
+#### Resultados error de clasificación
+
+```{r}
+resumen <- imbalanced30 %>% 
+  group_by(n, p, k, desb.teorico) %>% 
+  rename(FR = CG_Fletcher, PR = CG_Polak,    
+         HS = CG_Beale, DY = CG_DY) %>% 
+  summarise(across(c("BFGS", "FR", "PR",    
+                     "HS", "DY", "MM"),
+                   list(mean = ~mean(., na.rm = T), sd = ~sd(., na.rm = T)), 
+                   .names = "{fn}_of_{col}")) %>% ungroup() 
+
+resumenL <- resumen %>% 
+  pivot_longer(cols = -c("n", "p", "k","desb.teorico"), 
+               names_to = c("statistic", "Algorithm"),
+               names_pattern = "(.*)_of_(.*)", 
+               values_to = "Error") %>% 
+  pivot_wider(names_from = statistic, values_from=Error) %>% 
+  mutate(se = sd/sqrt(nr), me = qt(0.975, nr - 1) * se) %>% 
+  mutate(p = factor(p, levels = c(50, 100), labels = c("p = 50", "p = 100")),
+         n = factor(n, levels = c(100, 300, 500, 1000), labels = c("n = 100", "n = 300", "n = 500", "n = 1000")))
+
+
+r30 <- resumenL%>%
+  filter(Algorithm != "BFGS") %>% 
+  ggplot(aes(x = k, y = mean, group = Algorithm, shape=Algorithm)) +
+  geom_line(aes(linetype=Algorithm, color=Algorithm)) +
+  geom_point(aes(color=Algorithm), size = 2.0)+
+  geom_errorbar(aes(ymin=mean-me, ymax=mean+me, color=Algorithm), width=.1)+
+  scale_y_continuous(breaks = seq(0,100,5)) +
+  labs(y = "BACC(%)", x = "dimensions (k)") + theme_bw() +
+   theme(strip.text.x = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.text.y = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.background = element_rect(
+          color="black", fill="#A8A8A8", size=1.5, linetype="solid"
+        ),
+        legend.position = "top",
+        axis.text = element_text(size = 16),
+        axis.title = element_text(size = 20),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  facet_grid(n ~ p)
+```
+
+```{r err30, fig.height=8, fig.width=6}
+r30
+```
+
+#### RMSE $D=0.3$
+
+```{r}
+resumen <- imbalanced30 %>% 
+  group_by(n, p, k, desb.teorico) %>% 
+  summarise(across(starts_with("RMSE"),
+                   list(mean = ~mean(., na.rm = T), sd = ~sd(., na.rm = T)), 
+                   .names = "{fn}_of_{col}")) %>% ungroup() 
+
+resumenL <- resumen %>% 
+  pivot_longer(cols = -c("n", "p", "k","desb.teorico"), 
+               names_to = c("statistic", "metric"),
+               names_pattern = "(.*)_of_(.*)", 
+               values_to = "Error") %>%
+  separate(metric, c("RMSE", "Algorithm"), sep = "\\_") %>% 
+  select(-RMSE) %>% 
+  pivot_wider(names_from = statistic, values_from=Error) %>% 
+  mutate(se = sd/sqrt(nr), me = qt(0.975, nr - 1) * se) %>% 
+  mutate(p = factor(p, levels = c(50, 100), labels = c("p = 50", "p = 100")),
+         n = factor(n, levels = c(100, 300, 500, 1000), labels = c("n = 100", "n = 300", "n = 500", "n = 1000"))) %>% 
+  mutate(Algorithm = ifelse(Algorithm == "BS", "HS", Algorithm))
+
+
+RMSE30 <- resumenL%>%
+  filter(Algorithm != "BFGS") %>% 
+  ggplot(aes(x = k, y = mean, group = Algorithm, shape=Algorithm)) +
+  geom_line(aes(linetype=Algorithm, color=Algorithm)) +
+  geom_point(aes(color=Algorithm), size = 2.0)+
+  geom_errorbar(aes(ymin=mean-me, ymax=mean+me, color=Algorithm), width=.1)+
+  scale_y_continuous(breaks = seq(0,20, 1)) +
+  labs(y = "RMSE", x = "dimensions (k)") + theme_bw() +
+   theme(strip.text.x = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.text.y = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.background = element_rect(
+          color="black", fill="#A8A8A8", size=1.5, linetype="solid"
+        ),
+        legend.position = "top",
+        axis.text = element_text(size = 16),
+        axis.title = element_text(size = 20),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  facet_grid(n ~ p)
+```
+
+```{r RMSE30, fig.height=8, fig.width=6}
+RMSE30
+```
+
+
+### Caso desbalanceado $D=0.2$
+
+```{r, echo = FALSE}
+load(here::here("data/imbalanced20.rda"))
+nr <- nrow(imbalanced20 %>% filter(n==100 & p==50 & k==1))
+
+imbalanced20 <- imbalanced20 %>% filter(n != 1000)
+```
+
+#### Resultados de la validación cruzada $D=0.2$
+
+```{r}
+resumen <- imbalanced20 %>% 
+           group_by(n, p, k, desb.teorico) %>% 
+           summarise(across(c(desb.real, starts_with("cvD")),
+                     list(mean = ~mean(., na.rm = T), sd = ~sd(., na.rm = T)), 
+                     .names = "{fn}_of_{col}")) %>% ungroup() 
+
+resumenL <- resumen %>% 
+            pivot_longer(cols = -c("n", "p", "k","desb.teorico", "mean_of_desb.real", "sd_of_desb.real"), 
+                         names_to = c("statistic", "metric"),
+                         names_pattern = "(.*)_of_(.*)", 
+                         values_to = "Error") %>% 
+            separate(metric, c("cv", "Algorithm"), sep = "\\.") %>% 
+            select(-cv) %>% 
+            pivot_wider(names_from = statistic, values_from=Error) %>% 
+            mutate(se = sd/sqrt(nr), me = qt(0.975, nr - 1) * se) %>% 
+            mutate(p = factor(p, levels = c(50, 100), labels = c("p = 50", "p = 100")),
+                   n = factor(n, levels = c(100, 300, 500, 1000), labels = c("n = 100", "n = 300", "n = 500", "n = 1000"))) %>% 
+            mutate(Algorithm = ifelse(Algorithm == "BS", "HS", Algorithm))
+
+
+cv20 <- resumenL%>%
+        filter(Algorithm != "BFGS") %>% 
+        ggplot(aes(x = k, y = mean, group = Algorithm, shape=Algorithm)) +
+        geom_line(aes(linetype=Algorithm, color=Algorithm)) +
+        geom_point(aes(color=Algorithm), size = 2.0)+
+        geom_errorbar(aes(ymin=mean-me, ymax=mean+me, color=Algorithm), width=.1)+
+        scale_y_continuous(breaks = seq(0,100,5)) +
+        labs(y = "cv error(%)", x = "dimensions (k)") + theme_bw() +
+        theme(strip.text.x = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.text.y = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.background = element_rect(
+          color="black", fill="#A8A8A8", size=1.5, linetype="solid"
+        ),
+        legend.position = "top",
+        axis.text = element_text(size = 16),
+        axis.title = element_text(size = 20),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+        facet_grid(n ~ p) 
+
+```
+
+```{r cv20, fig.height=8, fig.width=6}
+cv20
+```
+
+#### Resultados error de clasificación
+
+```{r}
+resumen <- imbalanced20 %>% 
+  group_by(n, p, k, desb.teorico) %>% 
+  rename(FR = CG_Fletcher, PR = CG_Polak,    
+         HS = CG_Beale, DY = CG_DY) %>% 
+  summarise(across(c("BFGS", "FR", "PR",    
+                     "HS", "DY", "MM"),
+                   list(mean = ~mean(., na.rm = T), sd = ~sd(., na.rm = T)), 
+                   .names = "{fn}_of_{col}")) %>% ungroup() 
+
+resumenL <- resumen %>% 
+  pivot_longer(cols = -c("n", "p", "k","desb.teorico"), 
+               names_to = c("statistic", "Algorithm"),
+               names_pattern = "(.*)_of_(.*)", 
+               values_to = "Error") %>% 
+  pivot_wider(names_from = statistic, values_from=Error) %>% 
+  mutate(se = sd/sqrt(nr), me = qt(0.975, nr - 1) * se) %>% 
+  mutate(p = factor(p, levels = c(50, 100), labels = c("p = 50", "p = 100")),
+         n = factor(n, levels = c(100, 300, 500, 1000), labels = c("n = 100", "n = 300", "n = 500", "n = 1000")))
+
+
+r20 <- resumenL%>%
+  filter(Algorithm != "BFGS") %>% 
+  ggplot(aes(x = k, y = mean, group = Algorithm, shape=Algorithm)) +
+  geom_line(aes(linetype=Algorithm, color=Algorithm)) +
+  geom_point(aes(color=Algorithm), size = 2.0)+
+  geom_errorbar(aes(ymin=mean-me, ymax=mean+me, color=Algorithm), width=.1)+
+  scale_y_continuous(breaks = seq(0,100,5)) +
+  labs(y = "BACC(%)", x = "dimensions (k)") + theme_bw() +
+   theme(strip.text.x = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.text.y = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.background = element_rect(
+          color="black", fill="#A8A8A8", size=1.5, linetype="solid"
+        ),
+        legend.position = "top",
+        axis.text = element_text(size = 16),
+        axis.title = element_text(size = 20),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  facet_grid(n ~ p)
+```
+
+```{r err20, fig.height=8, fig.width=6}
+r20
+```
+
+#### RMSE $D=0.2$
+
+```{r}
+resumen <- imbalanced20 %>% 
+  group_by(n, p, k, desb.teorico) %>% 
+  summarise(across(starts_with("RMSE"),
+                   list(mean = ~mean(., na.rm = T), sd = ~sd(., na.rm = T)), 
+                   .names = "{fn}_of_{col}")) %>% ungroup() 
+
+resumenL <- resumen %>% 
+  pivot_longer(cols = -c("n", "p", "k","desb.teorico"), 
+               names_to = c("statistic", "metric"),
+               names_pattern = "(.*)_of_(.*)", 
+               values_to = "Error") %>%
+  separate(metric, c("RMSE", "Algorithm"), sep = "\\_") %>% 
+  select(-RMSE) %>% 
+  pivot_wider(names_from = statistic, values_from=Error) %>% 
+  mutate(se = sd/sqrt(nr), me = qt(0.975, nr - 1) * se) %>% 
+  mutate(p = factor(p, levels = c(50, 100), labels = c("p = 50", "p = 100")),
+         n = factor(n, levels = c(100, 300, 500, 1000), labels = c("n = 100", "n = 300", "n = 500", "n = 1000"))) %>% 
+  mutate(Algorithm = ifelse(Algorithm == "BS", "HS", Algorithm))
+
+
+RMSE20 <- resumenL%>%
+  filter(Algorithm != "BFGS") %>% 
+  ggplot(aes(x = k, y = mean, group = Algorithm, shape=Algorithm)) +
+  geom_line(aes(linetype=Algorithm, color=Algorithm)) +
+  geom_point(aes(color=Algorithm), size = 2.0)+
+  geom_errorbar(aes(ymin=mean-me, ymax=mean+me, color=Algorithm), width=.1)+
+  scale_y_continuous(breaks = seq(0,20, 1)) +
+  labs(y = "RMSE", x = "dimensions (k)") + theme_bw() +
+   theme(strip.text.x = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.text.y = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.background = element_rect(
+          color="black", fill="#A8A8A8", size=1.5, linetype="solid"
+        ),
+        legend.position = "top",
+        axis.text = element_text(size = 16),
+        axis.title = element_text(size = 20),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  facet_grid(n ~ p)
+```
+
+```{r RMSE20, fig.height=8, fig.width=6}
+RMSE20
+```
+
+
+### Caso desbalanceado $D=0.2$
+
+```{r, echo = FALSE}
+load(here::here("data/imbalanced10.rda"))
+nr <- nrow(imbalanced10 %>% filter(n==100 & p==50 & k==1))
+
+imbalanced10 <- imbalanced10 %>% filter(n != 1000)
+```
+
+#### Resultados de la validación cruzada $D=0.1$
+
+```{r}
+resumen <- imbalanced10 %>% 
+           group_by(n, p, k, desb.teorico) %>% 
+           summarise(across(c(desb.real, starts_with("cvD")),
+                     list(mean = ~mean(., na.rm = T), sd = ~sd(., na.rm = T)), 
+                     .names = "{fn}_of_{col}")) %>% ungroup() 
+
+resumenL <- resumen %>% 
+            pivot_longer(cols = -c("n", "p", "k","desb.teorico", "mean_of_desb.real", "sd_of_desb.real"), 
+                         names_to = c("statistic", "metric"),
+                         names_pattern = "(.*)_of_(.*)", 
+                         values_to = "Error") %>% 
+            separate(metric, c("cv", "Algorithm"), sep = "\\.") %>% 
+            select(-cv) %>% 
+            pivot_wider(names_from = statistic, values_from=Error) %>% 
+            mutate(se = sd/sqrt(nr), me = qt(0.975, nr - 1) * se) %>% 
+            mutate(p = factor(p, levels = c(50, 100), labels = c("p = 50", "p = 100")),
+                   n = factor(n, levels = c(100, 300, 500, 1000), labels = c("n = 100", "n = 300", "n = 500", "n = 1000"))) %>% 
+            mutate(Algorithm = ifelse(Algorithm == "BS", "HS", Algorithm))
+
+
+cv10 <- resumenL%>%
+        filter(Algorithm != "BFGS") %>% 
+        ggplot(aes(x = k, y = mean, group = Algorithm, shape=Algorithm)) +
+        geom_line(aes(linetype=Algorithm, color=Algorithm)) +
+        geom_point(aes(color=Algorithm), size = 2.0)+
+        geom_errorbar(aes(ymin=mean-me, ymax=mean+me, color=Algorithm), width=.1)+
+        scale_y_continuous(breaks = seq(0,100,5)) +
+        labs(y = "cv error(%)", x = "dimensions (k)") + theme_bw() +
+        theme(strip.text.x = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.text.y = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.background = element_rect(
+          color="black", fill="#A8A8A8", size=1.5, linetype="solid"
+        ),
+        legend.position = "top",
+        axis.text = element_text(size = 16),
+        axis.title = element_text(size = 20),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+        facet_grid(n ~ p) 
+
+```
+
+```{r cv10, fig.height=8, fig.width=6}
+cv10
+```
+
+#### Resultados error de clasificación
+
+```{r}
+resumen <- imbalanced10 %>% 
+  group_by(n, p, k, desb.teorico) %>% 
+  rename(FR = CG_Fletcher, PR = CG_Polak,    
+         HS = CG_Beale, DY = CG_DY) %>% 
+  summarise(across(c("BFGS", "FR", "PR",    
+                     "HS", "DY", "MM"),
+                   list(mean = ~mean(., na.rm = T), sd = ~sd(., na.rm = T)), 
+                   .names = "{fn}_of_{col}")) %>% ungroup() 
+
+resumenL <- resumen %>% 
+  pivot_longer(cols = -c("n", "p", "k","desb.teorico"), 
+               names_to = c("statistic", "Algorithm"),
+               names_pattern = "(.*)_of_(.*)", 
+               values_to = "Error") %>% 
+  pivot_wider(names_from = statistic, values_from=Error) %>% 
+  mutate(se = sd/sqrt(nr), me = qt(0.975, nr - 1) * se) %>% 
+  mutate(p = factor(p, levels = c(50, 100), labels = c("p = 50", "p = 100")),
+         n = factor(n, levels = c(100, 300, 500, 1000), labels = c("n = 100", "n = 300", "n = 500", "n = 1000")))
+
+
+r10 <- resumenL%>%
+  filter(Algorithm != "BFGS") %>% 
+  ggplot(aes(x = k, y = mean, group = Algorithm, shape=Algorithm)) +
+  geom_line(aes(linetype=Algorithm, color=Algorithm)) +
+  geom_point(aes(color=Algorithm), size = 2.0)+
+  geom_errorbar(aes(ymin=mean-me, ymax=mean+me, color=Algorithm), width=.1)+
+  scale_y_continuous(breaks = seq(0,100,5)) +
+  labs(y = "BACC(%)", x = "dimensions (k)") + theme_bw() +
+   theme(strip.text.x = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.text.y = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.background = element_rect(
+          color="black", fill="#A8A8A8", size=1.5, linetype="solid"
+        ),
+        legend.position = "top",
+        axis.text = element_text(size = 16),
+        axis.title = element_text(size = 20),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  facet_grid(n ~ p)
+```
+
+```{r err10, fig.height=8, fig.width=6}
+r10
+```
+
+#### RMSE $D=0.1$
+
+```{r}
+resumen <- imbalanced10 %>% 
+  group_by(n, p, k, desb.teorico) %>% 
+  summarise(across(starts_with("RMSE"),
+                   list(mean = ~mean(., na.rm = T), sd = ~sd(., na.rm = T)), 
+                   .names = "{fn}_of_{col}")) %>% ungroup() 
+
+resumenL <- resumen %>% 
+  pivot_longer(cols = -c("n", "p", "k","desb.teorico"), 
+               names_to = c("statistic", "metric"),
+               names_pattern = "(.*)_of_(.*)", 
+               values_to = "Error") %>%
+  separate(metric, c("RMSE", "Algorithm"), sep = "\\_") %>% 
+  select(-RMSE) %>% 
+  pivot_wider(names_from = statistic, values_from=Error) %>% 
+  mutate(se = sd/sqrt(nr), me = qt(0.975, nr - 1) * se) %>% 
+  mutate(p = factor(p, levels = c(50, 100), labels = c("p = 50", "p = 100")),
+         n = factor(n, levels = c(100, 300, 500, 1000), labels = c("n = 100", "n = 300", "n = 500", "n = 1000"))) %>% 
+  mutate(Algorithm = ifelse(Algorithm == "BS", "HS", Algorithm))
+
+
+RMSE10 <- resumenL%>%
+  filter(Algorithm != "BFGS") %>% 
+  ggplot(aes(x = k, y = mean, group = Algorithm, shape=Algorithm)) +
+  geom_line(aes(linetype=Algorithm, color=Algorithm)) +
+  geom_point(aes(color=Algorithm), size = 2.0)+
+  geom_errorbar(aes(ymin=mean-me, ymax=mean+me, color=Algorithm), width=.1)+
+  scale_y_continuous(breaks = seq(0,20, 1)) +
+  labs(y = "RMSE", x = "dimensions (k)") + theme_bw() +
+   theme(strip.text.x = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.text.y = element_text(
+          size = 14, color = "white", face = "bold.italic"
+        ),
+        strip.background = element_rect(
+          color="black", fill="#A8A8A8", size=1.5, linetype="solid"
+        ),
+        legend.position = "top",
+        axis.text = element_text(size = 16),
+        axis.title = element_text(size = 20),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  facet_grid(n ~ p)
+```
+
+```{r RMSE10, fig.height=8, fig.width=6}
+RMSE10
+```
+
+## Archivos exportables
+
+```{r}
+Ebalanceado <- balanceado %>% 
+               select(n, p, k, desb.teorico, desb.real,
+                      starts_with("CG"), MM, starts_with("cvD"), starts_with("RMSE"))
+
+Eimbalanced30 <- imbalanced30 %>% 
+               select(n, p, k, desb.teorico, desb.real,
+                      starts_with("CG"), MM, starts_with("cvD"), starts_with("RMSE"))
+
+Eimbalanced20 <- imbalanced20 %>% 
+               select(n, p, k, desb.teorico, desb.real,
+                      starts_with("CG"), MM, starts_with("cvD"), starts_with("RMSE"))
+
+Eimbalanced10 <- imbalanced10 %>%  
+               select(n, p, k, desb.teorico, desb.real,
+                      starts_with("CG"), MM, starts_with("cvD"), starts_with("RMSE"))
+
+dataexp <- rbind(Ebalanceado, Eimbalanced30, Eimbalanced20, Eimbalanced10) %>%
+           as_tibble() %>% 
+          group_by(n, p, k, desb.teorico) %>% 
+          rename(FR = CG_Fletcher, PR = CG_Polak,    
+                 HS = CG_Beale, DY = CG_DY) %>% 
+          summarise(across(everything(),
+                           list(mean = ~mean(., na.rm = T), sd = ~sd(., na.rm = T)), 
+                           .names = "{fn}_of_{col}")) %>% ungroup()
+
+writexl::write_xlsx(dataexp, here::here("data/resultados simulacion.xlsx"))
+
+```
+
